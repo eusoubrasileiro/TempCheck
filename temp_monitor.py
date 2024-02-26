@@ -6,25 +6,25 @@ to monitor temperature at our house. Writes on a database sqlite internal
 # this fork supports my version at branch TEMPer 4.1 install from it
 pip install git+https://github.com/greg-kodama/temper@TEMPer2_V4.1
 pip install pyserial pandas
-for arm use https://conda-forge.org/miniforge/
+
 """
 
 import pandas as pd 
-import subprocess 
 import time
 from datetime import datetime
 import sqlite3
+import temper 
 
 # in case no permissions
 # sudo chmod o+rw /dev/hidraw*
+# or use .rules and reboot
 
 dbfile = '/home/andre/home_temperature.db'
-temperpy_exec = '/home/andre/temper/temper.py'
+temp = temper.Temper()
 
 while True:    
-    cmd = f"/usr/bin/python3 {temperpy_exec}".split()
-    res = subprocess.run(cmd, stdout=subprocess.PIPE, text=True) 
-    temp_in, temp_out = res.stdout.split()[-6][:-1], res.stdout.split()[-3][:-1]
+    results = temp.read()[0]
+    temp_in, temp_out = results['internal temperature'], results['external temperature']
     now = datetime.now()
     with sqlite3.connect(dbfile) as conn:
         cursor = conn.cursor()

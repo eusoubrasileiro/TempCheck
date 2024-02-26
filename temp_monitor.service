@@ -7,7 +7,7 @@ Type=simple
 Restart=always
 RestartSec=5
 User=andre
-ExecStart=/usr/bin/python3 /home/andre/temper/temp_monitor.py
+ExecStart=/usr/bin/python3 /home/andre/tempcheck/temp_monitor.py
 
 [Install]
 WantedBy=multi-user.target
