@@ -32,4 +32,4 @@ while True:
         cursor = conn.cursor()
         cursor.execute(f"INSERT INTO home (time, temp_out, temp_in) VALUES (?, ?, ?)", (datetime.now(), float(temp_out), float(temp_in)))
         conn.commit()    
-    time.sleep(30) # every 30 seconds
+    time.sleep(100) 
