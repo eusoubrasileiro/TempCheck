@@ -1,0 +1,28 @@
+permit_join: true
+frontend: true
+mqtt:
+  base_topic: zigbee2mqtt
+  server: mqtt://localhost
+  user: andre
+  password: gig1684
+serial:
+  port: /dev/ttyUSB0
+  adapter: ember
+devices:
+  '0xa4c1382270cd9937':
+    friendly_name: temper_humidity
+    temperature_calibration: -2
+    reporting:
+      - cluster: Temperature
+        attribute: measuredValue
+        min: 30
+        max: 30
+        change: 0.1
+      - cluster: Humidity
+        attribute: measuredValue
+        min: 30
+        max: 30
+        change: 0.1
+# maybe '0xa4c1382270cd9937' will needed to be updated on new installation?
+# despite 30,30 update in seconds it can only update at every 2 minutes 
+# from help of sensor on aliexpress
