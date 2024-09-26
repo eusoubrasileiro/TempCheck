@@ -1,95 +1,122 @@
 """
-Reads temperature and humidity from 2 sensors
+Reads temperature and humidity from 2 sensors independently:
 
 1. A usb metal probe only for temperature (2 readings internal and external temperature)
     TEMPer2 sensor from https://pcsensor.com/manuals-detail?article_id=474 
+    The wire probe is now wrapped with cotton to avoid abrupt changes. 
+    The internal sensor is now being used to monitor the temperature of the external probe.
+    By setting both side by side and using a usb extension cable for that.
 
 2. A tuya Zigbee Sensor WSD500A type C power supplied (2 readings: temperature and relative humidity)    
     Connects and publishes on mosquitto mqtt broker from zigbee2mqtt and usb wireless zigbee 3.0 gateway adapter.
        
 To monitor temperature at our house. Writes on a database sqlite internal 
- 1. Temper internal temperature
- 2. Temper external temperature (probe on the end of black wire)
- 3. Zigbee temperature
- 4. Zigbee relative humidity
+The readings from the Zigbee sensor are saved in zigbee.db, and the TEMPer2 readings in temper.db.
+
+Requirements:
+- pip install git+https://github.com/greg-kodama/temper@TEMPer2_V4.1
+- pip install paho-mqtt sqlite3 pandas
+
+Temper installation
+this fork supports my version at branch TEMPer 4.1 install from it
+pip install git+https://github.com/greg-kodama/temper@TEMPer2_V4.1
+pip install pyserial pandas
+
 """
-# Temper installation
-# this fork supports my version at branch TEMPer 4.1 install from it
-# pip install git+https://github.com/greg-kodama/temper@TEMPer2_V4.1
-# pip install pyserial pandas
-import sys 
+
+import sys
+import time
+import threading
 from datetime import datetime
 import sqlite3
-#zigbee
-import paho.mqtt.client as mqtt # paho-mqtt-2.1.0
-import json 
-from datetime import datetime 
-#temper
-import temper 
-# in case no permissions
-# sudo chmod o+rw /dev/hidraw*
-# or use .rules and reboot
-dbfile = '/home/andre/home_temperature.db'
+import json
+import paho.mqtt.client as mqtt  # paho-mqtt-2.1.0
+import temper  # TEMPer2 sensor library
+
+# Define database files for each sensor
+zigbee_dbfile = '/home/andre/zigbee.db'
+temper_dbfile = '/home/andre/temper.db'
+
+# Initialize TEMPer2 sensor
 temper_reader = temper.Temper()
 
-#zigbee
-# Define the MQTT broker address and port
-broker_address = "localhost"  # Or use "orangepi5"
-broker_port = 1883  # Default MQTT port
-mqtt_username = "andre" 
+# MQTT settings for Zigbee
+broker_address = "localhost"
+broker_port = 1883
+mqtt_username = "andre"
 mqtt_password = "gig1684"
-# Define the topic to publish/subscribe
 topic = "zigbee2mqtt/temper_humidity"
 
-# Define callback functions
+# Zigbee callback functions
 def on_connect(client, userdata, flags, rc, properties):
     if rc == 0:
         print("Connected to MQTT Broker!")
-        # Subscribe to a topic
         client.subscribe(topic)
     else:
         print(f"Failed to connect, return code {rc}")
 
 def on_message(client, userdata, msg):
-    """on message from mqtt broker take the oportunity to read
-    temper sensor as well and store everything on sqlite database"""
-    msg = msg.payload.decode()    
-    msg = json.loads(msg)        
-    # fetch temper sensor data as well
-    results = temper_reader.read()[0] 
-    temp_in, temp_out = float(results['internal temperature']), float(results['external temperature'])
-    temp_zb, hum_zb = float(msg['temperature']), float(msg['humidity'])
-    print(f"temp_in {temp_in:2.2f} temp_out {temp_out:2.2f} "
-        f"temp_zb {temp_zb:2.2f} hum_zb {hum_zb:2.2f}", file=sys.stderr)                
-    with sqlite3.connect(dbfile) as conn:
-        cursor = conn.cursor()
-        cursor.execute(f"INSERT INTO home (time, temp_in, temp_out, temp_zb, hum_zb) " 
-                       "VALUES (?, ?, ?, ?, ?)", (datetime.now(), temp_in, temp_out, temp_zb, hum_zb))
-        conn.commit()        
+    """Handle MQTT message (Zigbee sensor data) and store it in zigbee.db"""
+    try:
+        msg_payload = msg.payload.decode()
+        data = json.loads(msg_payload)
+        now = datetime.now()
+        temp_zb, hum_zb = float(data['temperature']), float(data['humidity'])
 
-# Create an MQTT client instance
-client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-# Set the username and password for broker authentication
-client.username_pw_set(mqtt_username, mqtt_password)
-# Assign the callback functions
-client.on_connect = on_connect
-client.on_message = on_message
+        # Save Zigbee data to zigbee.db
+        with sqlite3.connect(zigbee_dbfile) as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"INSERT INTO home (time, temp_zb, hum_zb) "
+                           "VALUES (?, ?, ?)", (now, temp_zb, hum_zb))
+            conn.commit()
 
-# Connect to the broker
-try:
-    client.connect(broker_address, broker_port)
-except ConnectionRefusedError as e:
-    print(f"Connection refused: {e}")
-    exit(1)
+        print(f"Zigbee - Temp: {temp_zb:.2f}°C, Humidity: {hum_zb:.2f}%", file=sys.stderr)
 
-client.loop_forever()
-# Keep the script running
-try:
+    except Exception as e:
+        print(f"Error processing Zigbee message: {e}", file=sys.stderr)
+
+# TEMPer2 sensor reading function (runs independently every 2 minutes)
+def read_temper_sensors():
     while True:
-        pass
-except KeyboardInterrupt:
-    print("Exiting...")
+        try:
+            # Read TEMPer2 data
+            results = temper_reader.read()[0]
+            temp_in = float(results['internal temperature'])
+            temp_out = float(results['external temperature'])
+            now = datetime.now()
 
-# Stop the loop and disconnect
-client.loop_stop()
-client.disconnect()
+            # Save TEMPer2 data to temper.db
+            with sqlite3.connect(temper_dbfile) as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"INSERT INTO home (time, temp_in, temp_out) "
+                               "VALUES (?, ?, ?)", (now, temp_in, temp_out))
+                conn.commit()
+
+            print(f"TEMPer2 - Internal: {temp_in:.2f}°C, External: {temp_out:.2f}°C", file=sys.stderr)
+
+        except Exception as e:
+            print(f"Error reading TEMPer2 sensor: {e}", file=sys.stderr)
+
+        # Wait for 2 minutes before next reading
+        time.sleep(120)
+
+# Setup MQTT client for Zigbee sensor
+mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+mqtt_client.username_pw_set(mqtt_username, mqtt_password)
+mqtt_client.on_connect = on_connect # Assign the callback functions
+mqtt_client.on_message = on_message
+
+
+# Connect to the MQTT broker
+try:
+    mqtt_client.connect(broker_address, broker_port)
+except Exception as e:
+    print(f"Failed to connect to MQTT broker: {e}", file=sys.stderr)
+    sys.exit(1)
+
+# Start the MQTT loop in a separate thread
+mqtt_thread = threading.Thread(target=mqtt_client.loop_forever)
+mqtt_thread.start()
+
+# Start the TEMPer2 sensor reading loop
+read_temper_sensors()
