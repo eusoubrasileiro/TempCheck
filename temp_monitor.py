@@ -27,7 +27,7 @@ pip install pyserial pandas
 import sys
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 import sqlite3
 import json
 import paho.mqtt.client as mqtt  # paho-mqtt-2.1.0
@@ -46,6 +46,7 @@ broker_port = 1883
 mqtt_username = "andre"
 mqtt_password = "gig1684"
 topic = "zigbee2mqtt/temper_humidity"
+previous_time = datetime.now()
 
 # Zigbee callback functions
 def on_connect(client, userdata, flags, rc, properties):
@@ -58,9 +59,14 @@ def on_connect(client, userdata, flags, rc, properties):
 def on_message(client, userdata, msg):
     """Handle MQTT message (Zigbee sensor data) and store it in zigbee.db"""
     try:
+        global previous_time
         msg_payload = msg.payload.decode()
         data = json.loads(msg_payload)
         now = datetime.now()
+        if now - previous_time < timedelta(minutes=1):
+            previous_time = now 
+            return 
+        previous_time = now 
         temp_zb, hum_zb = float(data['temperature']), float(data['humidity'])
 
         # Save Zigbee data to zigbee.db
@@ -97,8 +103,8 @@ def read_temper_sensors():
         except Exception as e:
             print(f"Error reading TEMPer2 sensor: {e}", file=sys.stderr)
 
-        # Wait for 2 minutes before next reading
-        time.sleep(120)
+        # Wait for 1 minutes before next reading
+        time.sleep(60)
 
 # Setup MQTT client for Zigbee sensor
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
