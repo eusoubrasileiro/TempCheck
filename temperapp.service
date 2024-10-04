@@ -1,0 +1,13 @@
+[Unit]
+Description=Temperature Plot Web App
+After=network.target
+
+[Service]
+User=andre
+WorkingDirectory=/home/andre/
+ExecStart=/usr/bin/python3 /home/andre/tempcheck/app.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
