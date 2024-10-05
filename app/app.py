@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.ticker import MultipleLocator
 from aiohttp import web
+import jinja2
+import aiohttp_jinja2
 
 def read_data():
     # Function to read and resample data
@@ -30,6 +32,9 @@ def read_data():
     return df, dfz 
 
 app = web.Application()
+# Setup jinja2 template loader
+aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader('/home/andre/tempcheck/app'))
+
 
 async def plot_image(request):
 
@@ -76,28 +81,13 @@ async def plot_image(request):
     return web.Response(body=img_io.read(), content_type='image/png')
 
 
+@aiohttp_jinja2.template('index.html')  # Render 'index.html' with the time
 async def index(request):
-    """Render HTML directly from the Python code with a timestamp."""
-    timestamp = time.time()
-    html_content = f"""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Temperature Plot </title>
-    </head>
-    <body>
-        <h3>Temperature Plot {datetime.datetime.now().isoformat()} </h3>
-        <img src="/plot.png?{timestamp}" alt="Plot" style="max-width: 100%; height: auto; display: block; margin-left: auto; margin-right: auto;">
-    </body>
-    </html>
-    """
-    return web.Response(text=html_content, content_type='text/html')
-
+    return {'time': time.time(), 'dtime' : datetime.datetime.now().time().isoformat(timespec='seconds')}  # Pass the current time to avoid caching
+    
 # Define routes for the app
 app.router.add_get('/', index)
-app.router.add_get('/plot.png', plot_image)
+app.router.add_get('/plot', plot_image)
 
 # Run the app on port 500
 if __name__ == '__main__':
