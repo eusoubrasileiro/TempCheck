@@ -3,6 +3,9 @@ import sqlite3
 from io import BytesIO
 import datetime
 import pandas as pd
+import numpy as np
+import prophet
+from scipy.signal import butter, filtfilt
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.ticker import MultipleLocator
@@ -31,9 +34,74 @@ def read_data():
 
     return df, dfz 
 
+def fix_glitches(df):
+    def replace_glitch(window):
+        """    This function replaces glitches within a rolling window with np.nan  """  
+        return np.nan if window.nunique() == 1 else window.iloc[0]
+    window_size=6 # 6 equal samples in 6 x (120 seconds = 12min)
+    # Apply rolling window function with custom function
+    df['temp_out'] = df['temp_out'].rolling(window=window_size).apply(replace_glitch)
+    df['temp_in'] = df['temp_in'].rolling(window=window_size).apply(replace_glitch)
+    # since they are failing alternately and are measuring the same we can fill nans 
+    # when one of those are not failing
+    df['temp_out'] = df['temp_out'].fillna(df['temp_in'])
+    df['temp_in'] = df['temp_in'].fillna(df['temp_out'])
+    return df 
+
+def filter_and_forecast(df):
+    # Forecast based on filtered data
+    # since external and internal sensors are measuring the same 
+    
+    # 1. Merge the two temper sensors data
+    #  Standardize std and mean by scaling by std
+    std_in, std_out = df['temp_in'].std(), df['temp_out'].std()
+    std_scaler = std_out/std_in
+    df.loc[:, 'temp_in'] = df['temp_in']*std_scaler
+    # 3. removing mean difference between internal and external
+    mean_diff = (df['temp_out'].mean() - df['temp_in'].mean())
+    df.loc[:, 'temp_in'] = df['temp_in'] + mean_diff
+    # 4. Finally we minmax adjust [0, 1] to perform the averaging of the two sensors
+    def minmax(x):
+        return (x - x.min()) / (x.max() - x.min())
+    outmax, outmin = df['temp_out'].max(), df['temp_out'].min()
+    df.temp = np.nan 
+    # average two sensors 
+    df.loc[:, 'temp'] = 0.5*((minmax(df['temp_out'])+minmax(df['temp_in']))*(outmax-outmin)) + outmin
+    # interpolate data series for regular time-sample
+    temp = df['temp'].interpolate('slinear').resample('2min').mean()
+
+    # 2. Filter data using a low pass 4th order Butterworth filter
+    # define low pass and filter it
+    order = 4  # Filter order - Design the Butterworth filter
+    b, a = butter(order, 0.025, btype='low', analog=False)
+    # Apply the low-pass filter using filtfilt to preserve phase
+    temp_filt = filtfilt(b, a, temp.bfill())
+    temp_raw = df['temp_out']
+
+    # 3. forecast next 5 hours using 5 min samples
+    df['y'] = temp_filt
+    df.drop(columns=['temp_in', 'temp_out'], inplace=True)
+    df['ds'] = df.index
+
+    model = prophet.Prophet() # Create a Prophet model
+    model.fit(df) # Fit the model to the data
+    # Specify the number of periods to forecast
+    future_periods = 60  # Number of 5-minute intervals in a day - 300 minutes - 5 hours
+    # Generate future dates for forecasting
+    future = model.make_future_dataframe(periods=future_periods, freq='5T')  # '5T' for 5-minute resolution
+    # Perform the forecastdf
+    forecast = model.predict(future[-60:])
+    # Retrieve the forecasted values
+    forecasted_values = forecast.tail(future_periods)['yhat']
+    forecast_df = pd.DataFrame(forecasted_values.values, columns=['temp'], 
+                                index=future.ds.iloc[-60:].values)
+    return forecast_df, temp_raw, temp_filt
+
+
 app = web.Application()
 # Setup jinja2 template loader
 aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader('/home/andre/tempcheck/app'))
+
 
 
 async def plot_image(request):
@@ -41,10 +109,19 @@ async def plot_image(request):
     df, dfz = read_data()
     lambda_mask = lambda df : df.index > datetime.datetime.now() - datetime.timedelta(days=7)
 
+    df = df.loc[lambda_mask(df)]
+    dfz = dfz.loc[lambda_mask(dfz)]
+
+    df = fix_glitches(df)
+
+    # Filter and forecast data
+    forecast, temp_raw, temp_filt = filter_and_forecast(df)
+
     fig, ax = plt.subplots(figsize=(15, 4))
-    ax.plot(df.loc[lambda_mask(df)].index, df.loc[lambda_mask(df)]['temp_in'], 'x-', markersize=1.0, label='temp_in', linewidth=0.5)
-    ax.plot(df.loc[lambda_mask(df)].index, df.loc[lambda_mask(df)]['temp_out'], '>-', markersize=1.0, label='temp_out', linewidth=0.5)
-    ax.plot(dfz.loc[lambda_mask(dfz)].index, dfz.loc[lambda_mask(dfz)]['temp_zb'], '+-', markersize=1.0, label='temp_zb', linewidth=0.5)
+    ax.plot(df.index, temp_raw, 'bx-', markersize=0.7, linewidth=0., label='raw')
+    ax.plot(df.index, temp_filt, '-k', markersize=0., label='temp', linewidth=0.8)    
+    ax.plot(dfz.index, dfz['temp_zb'], 'g+', markersize=0.7, alpha=0.4, label='temp_zb', linewidth=0.8)
+    ax.plot(forecast.index, forecast.temp, 'y-', linewidth=0.8, markersize=0., label='forecast')
 
     ax.set_ylim([21, 33])
     ax.yaxis.grid(True, linestyle='-', linewidth=0.9, color='gray')
