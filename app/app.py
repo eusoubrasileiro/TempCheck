@@ -103,7 +103,6 @@ app = web.Application()
 aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader('/home/andre/tempcheck/app'))
 
 
-
 async def plot_image(request):
 
     df, dfz = read_data()
@@ -118,6 +117,7 @@ async def plot_image(request):
     forecast, temp_raw, temp_filt = filter_and_forecast(df)
 
     fig, ax = plt.subplots(figsize=(15, 4))
+    ax.set_title(f"Temperature at {datetime.datetime.now().time().isoformat(timespec='seconds')}")
     ax.plot(df.index, temp_raw, 'bx-', markersize=0.7, linewidth=0., label='raw')
     ax.plot(df.index, temp_filt, '-k', markersize=0., label='temp', linewidth=0.8)    
     ax.plot(dfz.index, dfz['temp_zb'], 'g+', markersize=0.7, alpha=0.4, label='temp_zb', linewidth=0.8)
@@ -160,7 +160,7 @@ async def plot_image(request):
 
 @aiohttp_jinja2.template('index.html')  # Render 'index.html' with the time
 async def index(request):
-    return {'time': time.time(), 'dtime' : datetime.datetime.now().time().isoformat(timespec='seconds')}  # Pass the current time to avoid caching
+    return {'time': time.time() }  # Pass the current time to avoid caching
     
 # Define routes for the app
 app.router.add_get('/', index)
