@@ -1,20 +1,12 @@
-import time 
 import sqlite3
-from io import BytesIO
 import datetime
 import pandas as pd
 import numpy as np
 from prophet import Prophet
 from scipy.signal import butter, filtfilt
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-from matplotlib.ticker import MultipleLocator
 from aiohttp import web
-import jinja2
-import aiohttp_jinja2
-import plotly.graph_objs as go
-import plotly.io as pio
-
+import os 
+import sys 
 
 def read_data():
     # Function to read and resample data
@@ -81,16 +73,11 @@ def make_forecast(df):
     return forecast_df
 
 
-app = web.Application()
-# Setup jinja2 template loader
-aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader('/home/andre/tempcheck/app'))
-
-
-
-@aiohttp_jinja2.template('index.html')
-async def index(request):
+async def get_data(request):
     df, dfz = read_data()
     lambda_mask = lambda df : df.index > datetime.datetime.now() - datetime.timedelta(days=7)
+    # NaN must be None for javascript json 
+    replace_nan_with_none = lambda data_list: [None if np.isnan(x) else x for x in data_list]
 
     df = df.loc[lambda_mask(df)]
     dfz = dfz.loc[lambda_mask(dfz)]
@@ -98,45 +85,57 @@ async def index(request):
     df = process_data(df)
     temp_raw, temp_filt = df['raw'], df['temp']
     forecast = make_forecast(df)
+    # Convert data to JSON-compatible format
+    data = {
+        'raw': {
+            'x': df.index.strftime('%Y-%m-%d %H:%M:%S').tolist(),  # Convert index to strings
+            'y': replace_nan_with_none(temp_raw.tolist())  # Replace NaN with None
+        },
+        'temp_filt': {
+            'x': df.index.strftime('%Y-%m-%d %H:%M:%S').tolist(),
+            'y': replace_nan_with_none(temp_filt.tolist())  # Replace NaN with None
+        },
+        'temp_zb': {
+            'x': dfz.index.strftime('%Y-%m-%d %H:%M:%S').tolist(),
+            'y': replace_nan_with_none(dfz['temp_zb'].tolist())  # Replace NaN with None
+        },
+        'forecast': {
+            'x': forecast.index.strftime('%Y-%m-%d %H:%M:%S').tolist(),
+            'y': replace_nan_with_none(forecast['temp'].tolist())  # Replace NaN with None
+        }
+    }
 
-    # Create Plotly figure
-    fig = go.Figure()
-    # Add raw scatter points
-    fig.add_trace(go.Scatter(x=df.index, y=temp_raw, mode='markers', 
-                             marker=dict(color='blue', size=3), name='Raw'))    
-    # Add filtered temperature line
-    fig.add_trace(go.Scatter(x=df.index, y=temp_filt, mode='lines', 
-                             line=dict(color='black', width=0.8), name='TempS'))
-        # Add zigbee temperature points
-    fig.add_trace(go.Scatter(x=dfz.index, y=dfz['temp_zb'], mode='markers', 
-                             marker=dict(color='green', size=3, opacity=0.4), name='TempZb'))    
-    # Add forecasted temperature line
-    fig.add_trace(go.Scatter(x=forecast.index, y=forecast['temp'], mode='lines', 
-                             line=dict(color='yellow', width=0.8), name='Forecast'))
-                     
-    # Layout for y-axis (left)
-    fig.update_yaxes(title_text='Temperature', range=[21, 33], showgrid=True, gridwidth=0.9)
-        
-    fig.update_layout(
-        title = 'Home Temperature Sensors',
-        xaxis_tickformatstops = [
-            dict(dtickrange=[1000, 60000], value="%H:%M:%S s"),
-            dict(dtickrange=[60000, 3600000], value="%H:%M m"),
-            dict(dtickrange=[3600000, 86400000], value="%H:%M <br>%d-%B")            
-        ]
-    )
-                          
-    # Convert the figure to HTML and serve it
-    fig_html = fig.to_html(full_html=False)
+    return web.json_response(data)
     
-    return {'plot': fig_html, 'time': datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
-
-
     
-# Define routes for the app
-app.router.add_get('/', index)
+# Define the path to your build folder (where index.html and _app are located)
+BUILD_DIR = '/home/andre/tempcheck/app'  # Adjust this path if necessary
 
-# Run the app on port 500
+# Serve the main index.html
+async def handle_index(request):
+    return web.FileResponse(os.path.join(BUILD_DIR, 'index.html'))
+
+# Serve the favicon.png
+async def handle_favicon(request):
+    return web.FileResponse(os.path.join(BUILD_DIR, 'favicon.png'))
+
+# Serve static files from the _app folder
+async def handle_app_files(request):
+    # Get the full requested path under /_app
+    full_path = request.match_info.get('tail')
+    file_path = os.path.join(BUILD_DIR, '_app', full_path)    
+    # Ensure the file exists before returning it, otherwise return a 404
+    if os.path.exists(file_path):
+        return web.FileResponse(file_path)
+    else:
+        return web.Response(status=404, text=f"File not found {file_path}")        
+
+app = web.Application()
+app.router.add_get('/', handle_index)
+app.router.add_get('/favicon.png', handle_favicon)
+app.router.add_get('/_app/{tail:.*}', handle_app_files)
+app.router.add_get('/data', get_data)  # Your API route
+    
 if __name__ == '__main__':
-    web.run_app(app, port=5000)
+    web.run_app(app, port=5005)
 
