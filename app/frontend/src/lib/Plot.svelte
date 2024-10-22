@@ -10,13 +10,47 @@
       plotGraph();
    }
 
+   function generateTicks(data) {
+    const tickvals = [];
+    const ticktext = [];
+    
+    const oneDay = 24 * 60 * 60 * 1000;  // One day in milliseconds
+    const sixHours = 6 * 60 * 60 * 1000;  // Six hours in milliseconds
+
+    const getBeginDay = (date) => {
+      return new Date(new Date(date).toDateString());
+    };
+    
+    // Get the first timestamp from data and use it get the 00:00 hours
+    let startTime = getBeginDay(data.raw.x[0]).getTime();  
+    let endTime = getBeginDay(data.raw.x[data.raw.x.length - 1]).getTime() + oneDay;  // Last timestamp midnight 
+
+    // Loop through time range, adding ticks every 6 hours
+    for (let time = startTime; time <= endTime; time += sixHours) {
+        let date = new Date(time);
+        tickvals.push(time);  // Add the current time to tickvals
+        // Check if it's new day adding date at first tick hour
+        if (date.getHours() === 0) {
+            ticktext.push(date.getHours() + 'h<br>' + date.getDate() + '/' + (date.getMonth() + 1));  // Show the date at midnight
+        } else {
+            ticktext.push(date.getHours() +'h');  // Show the hour for other times
+        }
+    }
+
+    return { tickvals, ticktext };
+   }
+
+
    function plotGraph() {
+      const yhover = '%{y:.2f}°C<br>%{x}<extra></extra>'; 
+
       const traceRaw = {
          x: plotData.raw.x,
          y: plotData.raw.y,
          mode: 'markers',
          marker: { size: 3, opacity: 0.3 },
          name: 'Raw',
+         hovertemplate : yhover,
       };
 
       const traceTempFilt = {
@@ -25,6 +59,7 @@
          mode: 'lines',
          line: { width: 1.8, color: 'black' },
          name: 'TempS',
+         hovertemplate : yhover,
       };
 
       const traceTempZB = {
@@ -33,6 +68,7 @@
          mode: 'markers',
          marker: { size: 3, opacity : 0.3, symbol: 'x'},
          name: 'TempZb',
+         hovertemplate : yhover,
       };
 
       const traceForecast = {
@@ -41,27 +77,24 @@
          mode: 'lines',
          line: { width: 1.5, color: 'red'},
          name: 'Forecast',
+         hovertemplate : yhover,
       };
 
+      const ticks = generateTicks(plotData);  // Assuming 'data' is your dataset
+
       const layout = {
-         width: 1200,
-         title: 'Home Temperature Sensors',
+         width: 1200,         
          xaxis: {
-            tickmode: 'linear',
-            dtick: 6 * 60 * 60 * 1000,  // 6 hours in milliseconds
-            tickformat: "%H:%M<br>%d/%m",  // Hour on top and date on bottom
-            tickformatstops: [
-                  // For 6-hour intervals or shorter, display hour and date in two lines
-                  { dtickrange: [null, 6 * 60 * 60 * 1000], value: "%H:%M<br>%d/%m" },
-                  // For intervals longer than 6 hours, you can adjust if needed
-                  { dtickrange: [6 * 60 * 60 * 1000, null], value: "%H:%M<br>%d/%m" }
-            ],
+            tickmode: 'array',            
+            tickvals: ticks.tickvals,  // Custom tick positions
+            ticktext: ticks.ticktext,  // Custom tick labels
             hoverformat: "%d/%m %H:%M",  // Customize hover labels to show day, hour, minute
          },
          yaxis: {
             title: 'Temperature (°C)',
-            range: [21, 33],
+            range: [21, 33]            
          },
+         hovermode: 'closest',
       };
 
       Plotly.newPlot('plot', [traceRaw, traceTempFilt, traceTempZB, traceForecast], layout);
