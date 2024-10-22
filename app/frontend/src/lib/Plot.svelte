@@ -15,7 +15,7 @@
          x: plotData.raw.x,
          y: plotData.raw.y,
          mode: 'markers',
-         marker: { size: 4 },
+         marker: { size: 3, opacity: 0.3 },
          name: 'Raw',
       };
 
@@ -23,7 +23,7 @@
          x: plotData.temp_filt.x,
          y: plotData.temp_filt.y,
          mode: 'lines',
-         line: { width: 0.8 },
+         line: { width: 1.8, color: 'black' },
          name: 'TempS',
       };
 
@@ -31,7 +31,7 @@
          x: plotData.temp_zb.x,
          y: plotData.temp_zb.y,
          mode: 'markers',
-         marker: { size: 4 },
+         marker: { size: 3, opacity : 0.3, symbol: 'x'},
          name: 'TempZb',
       };
 
@@ -39,21 +39,24 @@
          x: plotData.forecast.x,
          y: plotData.forecast.y,
          mode: 'lines',
-         line: { width: 0.8 },
+         line: { width: 1.5, color: 'red'},
          name: 'Forecast',
       };
 
       const layout = {
          width: 1200,
-         title: `Home Temperature Sensors`,
+         title: 'Home Temperature Sensors',
          xaxis: {
             tickmode: 'linear',
-            dtick: 6 * 60 * 60 * 1000,
-            tickformat: "%H:%M",
+            dtick: 6 * 60 * 60 * 1000,  // 6 hours in milliseconds
+            tickformat: "%H:%M<br>%d/%m",  // Hour on top and date on bottom
             tickformatstops: [
-               { dtickrange: [null, 86400000], value: "%d/%m" },
-               { dtickrange: [86400000, null], value: "%H:%M" }
-            ]
+                  // For 6-hour intervals or shorter, display hour and date in two lines
+                  { dtickrange: [null, 6 * 60 * 60 * 1000], value: "%H:%M<br>%d/%m" },
+                  // For intervals longer than 6 hours, you can adjust if needed
+                  { dtickrange: [6 * 60 * 60 * 1000, null], value: "%H:%M<br>%d/%m" }
+            ],
+            hoverformat: "%d/%m %H:%M",  // Customize hover labels to show day, hour, minute
          },
          yaxis: {
             title: 'Temperature (°C)',
