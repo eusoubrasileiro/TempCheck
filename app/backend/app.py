@@ -13,7 +13,7 @@ def read_data():
     def read_resample(file, resample='2min', label_offset={}):
         with sqlite3.connect(file) as conn:
             df = pd.read_sql_query("SELECT * FROM home", conn)
-            df.index = pd.to_datetime(df.time)
+            df.index = pd.to_datetime(df.time, format='mixed') 
             df.sort_index(inplace=True)
             df.drop(columns=['time'], inplace=True)
             df.dropna(inplace=True)
@@ -43,7 +43,8 @@ def process_data(df):
     df['temp_out'] = df['temp_out'].fillna(df['temp_in'])
     df['temp_in'] = df['temp_in'].fillna(df['temp_out'])
     df['raw'] = (df['temp_in'] + df['temp_out'])/ 2 # Merge the two temper sensors data
-    df['temp'] = df['raw'].interpolate('slinear').resample('2min').mean()
+    df['raw'] = df['raw'].interpolate('slinear') # fix nan values with linear interpolation 
+    df['temp'] = df['raw'].resample('2min').mean()    
     df['temp'] = df['temp'].bfill() # some nan samples in the begin
     order = 4  # Filter order - Design the Butterworth filter
     b, a = butter(order, 0.025, btype='low', analog=False)
